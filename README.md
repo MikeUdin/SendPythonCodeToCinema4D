@@ -1,7 +1,7 @@
 
 # SendPythonCodeToCinema4D
 
-**SendPythonCodeToCinema4D** is a plugin for **Cinema 4D** that allows you to sent python script code to Cinema 4D and execute it. Plug-in based on Niklas Rosenstein's **Remote Code Runner**. [Get it here.](https://github.com/markkorput/sublime-script/tree/feature/no-particle-system) 
+**SendPythonCodeToCinema4D** is a plugin for **Cinema 4D** that allows you to sent python script code to Cinema 4D and execute it. Plug-in based on Niklas Rosenstein's **Remote Code Runner**. [Get it here.](https://github.com/markkorput/sublime-script) 
 
 ## Installation
 
