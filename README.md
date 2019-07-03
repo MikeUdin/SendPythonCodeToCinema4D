@@ -5,7 +5,7 @@
 
 ## Installation
 
-1.  Download the latest code from GitHub and unpack the content into your Cinema 4D plugin directory.
+Download the latest code from GitHub and unpack the content into your Cinema 4D plugin directory.
     
     ```
     Cinema 4D RXX/
@@ -37,8 +37,8 @@ Open menu **Run** and write:
 ```
 python -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "$(FULL_CURRENT_PATH)" --origin "Notepad++"
 ```
-choose name and press **Save**. Now you can send code from opened for editing python script file to Cinema 4D.
-Also using Notepad++ NppExec plug-in you can send to Cinema 4D unsaved code. Open menu **Plugins > NppExec > Execute** and paste this code:
+Setup run-command name and press **Save**. Now you can send code from opened for editing python script file to Cinema 4D.
+Also using Notepad++ **NppExec** plug-in you can send to Cinema 4D *unsaved* code. Install **NppExec** plug-in, open menu **Plugins > NppExec > Execute** and enter this code:
 ```
 set TEMP_PATH = $(NPP_DIRECTORY)\temp_script.py
 text_saveto "$(TEMP_PATH)"
@@ -109,6 +109,6 @@ def main():
     pass
 ```
 
-[https://notepad-plus-plus.org/](https://notepad-plus-plus.org/)
+[mikeudin.net](https://mikeudin.net/)
 
  
