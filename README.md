@@ -34,12 +34,12 @@ You can use **SendPythonCodeToCinema4D** with different code editors like a Note
 
 ![Preview Image](npp_example.png)
 Open menu **Run** and write:
-```
+```c
 python -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "$(FULL_CURRENT_PATH)" --origin "Notepad++"
 ```
 choose name and press **Save**. Now you can send code from opened for editing python script file to Cinema 4D.
 Also using Notepad++ NppExec plug-in you can send to Cinema 4D unsaved code. Open menu **Plugins > NppExec > Execute** and paste this code:
-```
+```c
 set TEMP_PATH = $(NPP_DIRECTORY)\temp_script.py
 text_saveto "$(TEMP_PATH)"
 python -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "$(TEMP_PATH)" --origin "Notepad++"
@@ -47,48 +47,52 @@ python -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file 
 ### Sublime Text
 ![Preview Image](sublime_example.png)
 Open **Tools > Buils System > New Build system**. Paste this code:
-```
+```py
 {
     "cmd": ["python", "-u", "d:\\Your Cinema 4D Plugins\\SendPythonCode\\send_python_code.py", "--file", "$file", "--origin","Sublime Text"],
     "selector": "source.python",
     "file_regex": "^\\s*File \"(...*?)\", line ([0-9]*)"
 }
 ```
-Save file with desired name. Then go to **Tools > Build System** and select already created  Build system. To send code to Cinema 4D use command **Tools > Build**. Also for more convienient way you can setup shortkey.
+Save file with desired name. Then go to **Tools > Build System** and select already created  Build system. To send code to Cinema 4D use command **Tools > Build**. Also for more convienient use you can setup shortkey.
 
 ### PyCharm  
 ![Preview Image](pycharm_example.png)
 Go to menu **File > Settings > Tools > External Tools**. 
 Setup Tool settings like this:
-```
+```c
 Name: SendCodeToC4D
 Description: Send python code to Cinema 4D from PyCharm 
 Program: python (or c:\Python27\python.exe)
 Arguments: -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file $FilePath$ --origin PyCharm
 Working directory: $FileDir$
 ```
+To send code to Cinema 4D use command **Tools > External tools > SendCodeToC4D**. Also for more convienient use you can setup shortkey.
+![Preview Image](pycharm_example2.png)
+
 ## Advanced features
 You can use **SendPythonCodeToCinema4D** also for editing Cinema 4D Python objects like a *Python Generator*, *Python Effector*, *Python Tag* and *Python Field*. For that use script code docstring:
 
 To change code in **Python generator** use in docstring:
-```
+```c
 Generator: <Your python generator object name>
 ``` 
 To change code in **Python effector** use in docstring:
-```
+```c
 Effector: <Your python effector object name>
 ``` 
 To change code in **Python tag** use in docstring:
-```
+```c
 Tag: <Your python tag name>
 ``` 
 To change code in **Python field** use in docstring:
-```
+```c
 Field: <Your python field object name>
 ``` 
 
 ### Example:
-```
+After sending this code to scene all Python field objects with name  "Python Field" will recive it.
+```py
 """
 Python Field description
 
