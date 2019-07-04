@@ -22,7 +22,7 @@ Use command line to send python script code to Cinema 4D:
 ```
 cmd python -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "c:\\script.py"
 ``` 
-or use full path python exutable: 
+or use full path to python executable: 
 ```
 cmd "c:\Python27\python.exe" -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "c:\\script.py"
 ```
