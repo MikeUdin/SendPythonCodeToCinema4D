@@ -27,7 +27,7 @@ or use full path python exutable:
 cmd "c:\Python27\python.exe" -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "c:\\script.py"
 ```
 
-## Text editors integration
+## Text editor integration
 You can use **SendPythonCodeToCinema4D** with different code editors like a Notepad++, Sublime Text or PyCharm.
 
 ### Notepad++
@@ -46,7 +46,7 @@ python -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file 
 ``` 
 ### Sublime Text
 ![Preview Image](sublime_example.png)
-Open **Tools > Buils System > New Build system**. Paste this code:
+Open **Tools > Build System > New Build system**. Paste this code:
 ```py
 {
     "cmd": ["python", "-u", "d:\\Your Cinema 4D Plugins\\SendPythonCode\\send_python_code.py", "--file", "$file", "--origin","Sublime Text"],
