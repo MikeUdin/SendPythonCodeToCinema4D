@@ -403,7 +403,7 @@ def obj_execute(source):
             if mode in ['Generator','Effector','Tag','Field']:
                 break
  
-    if not mode or not py_name:
+    if mode not in ['Generator','Effector','Tag','Field'] or not py_name:
         return False
 
     doc = c4d.documents.GetActiveDocument()
