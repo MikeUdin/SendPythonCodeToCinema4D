@@ -21,7 +21,7 @@
 # THE SOFTWARE.
 
 __author__ = 'Niklas Rosenstein <rosensteinniklas (at) gmail.com>'
-__version__ = '1.0'
+__version__ = '1.1'
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                      Shared Code (SocketFile wrapper class)
@@ -29,8 +29,8 @@ __version__ = '1.0'
 
 import sys
 if sys.version_info[0] < 3:
-    try: from cStringIO import StringIO as BytesIO
-    except ImportError: from StringIO import StringIO as BytesIO
+    try: from io import StringIO as BytesIO
+    except ImportError: from io import StringIO as BytesIO
 else:
     from io import BytesIO
 
@@ -141,7 +141,7 @@ class SourceObject(object):
         """
 
         code = compile(self.source, self.filename, 'exec')
-        exec code in scope
+        exec(code, scope)
 
 def parse_headers(fp):
     """
@@ -156,7 +156,11 @@ def parse_headers(fp):
         line = fp.readline().strip()
         if not line: break
 
-        key, _, value = line.partition(':')
+        if sys.version_info[0] < 3:
+            key, _, value = line.partition(':')
+        else:    
+            key, _, value = line.decode().partition(':')
+        
         key = key.rstrip().lower()
         if key not in headers:
             headers[key] = value.lstrip()
@@ -233,7 +237,7 @@ def parse_request(conn, addr, required_password):
 def get_module_docstring(filepath):
     "Get module-level docstring of Python module at filepath, e.g. 'path/to/file.py'."
     co = compile(open(filepath).read(), filepath, 'exec')
-    if co.co_consts and isinstance(co.co_consts[0], basestring):
+    if co.co_consts and isinstance(co.co_consts[0], str):
         docstring = co.co_consts[0]
     else:
         docstring = None
@@ -334,11 +338,11 @@ class CodeExecuterMessageHandler(c4d.plugins.MessageData):
         self.queue_lock = threading.Lock()
         self.thread = ServerThread(self.queue, self.queue_lock, host, port, password)
 
-        print "Binding Remote Code Executor Server to {0}:{1} ...".format(host, port)
+        print("Binding Remote Code Executor Server to {0}:{1} ...".format(host, port))
         try:
             self.thread.start()
         except socket.error as exc:
-            print "Failed to bind to {0}:{1}".format(host, port)
+            print("Failed to bind to {0}:{1}\n{2}".format(host, port,exc))
             self.thread = None
 
     def register(self):
@@ -358,7 +362,7 @@ class CodeExecuterMessageHandler(c4d.plugins.MessageData):
 
     def on_shutdown(self):
         if self.thread:
-            print "Shutting down Remote Code Executor Server thread ..."
+            print("Shutting down Remote Code Executor Server thread ...")
             self.thread.running = False
             self.thread.join()
             self.thread = None
@@ -378,7 +382,7 @@ class CodeExecuterMessageHandler(c4d.plugins.MessageData):
                 scope = self.get_scope()
                 scope['__file__'] = source.filename
                 if not obj_execute(source):
-                    print "RemoteCodeRunner: running", source
+                    print("RemoteCodeRunner: running", source)
                     source.execute(scope)
             except Exception as exc:
                 traceback.print_exc()
@@ -432,7 +436,7 @@ def obj_execute(source):
                     tag[c4d.TPYTHON_CODE] = code
                     counter += 1
 
-    print 'RemoteCodeRunner: code was changed in {0} {1}s '.format(counter, mode)
+    print('RemoteCodeRunner: code was changed in {0} {1}s '.format(counter, mode))
     c4d.EventAdd()
 
     return True
