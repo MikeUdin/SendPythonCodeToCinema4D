@@ -111,7 +111,7 @@ class SocketFile(object):
         #         raise ValueError('got str object and no encoding specified')
         #     data = data.encode(self.encoding)
 
-        return self._socket.send(data)
+        return self._socket.send(data.encode())
 
     def close(self):
         return self._socket.close()
@@ -181,23 +181,25 @@ class SendPythonCodeCommand():
         filename = self.pars['file']
         
         if not exists(filename):
-            print "File \'{0}\' is not exist.".format(filename)
+            print ("File \'{0}\' is not exist.".format(filename))
             return
 
 
         code = open(filename, "r").read()
-        
-        try:
-            decoded = code.decode('UTF-8')
-        except UnicodeDecodeError:
-            encoding = 'ascii'
-        else:
-            for ch in decoded:
-                if 0xD800 <= ord(ch) <= 0xDFFF:
-                    encoding = 'ascii'
-            encoding = 'UTF-8'
 
-        # encoding = 'UTF-8'
+        if sys.version_info[0] < 3:
+            encoding = 'UTF-8'
+            try:
+                decoded = code.decode('UTF-8')
+            except UnicodeDecodeError:
+                encoding = 'ascii'
+            else:
+                for ch in decoded:
+                    if 0xD800 <= ord(ch) <= 0xDFFF:
+                        encoding = 'ascii'
+                # encoding = 'UTF-8'
+        else:
+            encoding = 'UTF-8'
         # if encoding == 'Undefined':
         #     encoding = 'UTF-8'
 
