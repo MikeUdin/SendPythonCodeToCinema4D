@@ -417,15 +417,15 @@ def obj_execute(source):
     for obj in no_recur_iter(doc.GetFirstObject()):
         # print obj
         if mode == 'Generator' and obj.GetType() == 1023866 and obj.GetName() == py_name:
-            obj[c4d.OPYTHON_CODE] = str(code)
+            obj[c4d.OPYTHON_CODE] = str(code,'utf-8')
             counter += 1
         
         if mode == 'Effector' and obj.GetType() == 1025800 and obj.GetName() == py_name:
-            obj[c4d.OEPYTHON_STRING] = str(code)
+            obj[c4d.OEPYTHON_STRING] = str(code,'utf-8')
             counter += 1
 
         if mode == 'Field' and obj.GetType() == 440000277 and obj.GetName() == py_name:
-            obj[c4d.PYTHON_CODE] = str(code)
+            obj[c4d.PYTHON_CODE] = str(code,'utf-8')
             counter += 1
 
         if mode == 'Tag':
@@ -433,7 +433,7 @@ def obj_execute(source):
             # print tags
             for tag in tags:
                 if tag.GetName() == py_name:
-                    tag[c4d.TPYTHON_CODE] = str(code)
+                    tag[c4d.TPYTHON_CODE] = str(code,'utf-8')
                     counter += 1
 
     print('RemoteCodeRunner: code was changed in {0} {1}s '.format(counter, mode))
