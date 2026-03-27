@@ -27,6 +27,8 @@ or use full path to python executable:
 cmd "c:\Python27\python.exe" -u "d:\Your Cinema 4D Plugins\SendPythonCode\send_python_code.py" --file "c:\\script.py"
 ```
 
+By default the client now scans the port range and discovers the active Cinema 4D plugin by a lightweight handshake before sending code.
+
 ## Text editor integration
 You can use **SendPythonCodeToCinema4D** with different code editors like a Notepad++, Sublime Text or PyCharm.
 
@@ -70,6 +72,34 @@ Working directory: $FileDir$
 To send code to Cinema 4D use command **Tools > External tools > SendCodeToC4D**. Also for more convienient use you can setup shortkey.
 
 ![Preview Image](pycharm_example2.png)
+
+## Port discovery
+
+When Cinema 4D starts, the plugin first tries the preferred port and if it is busy it scans the next ports in range until it finds a free one.
+
+- Default port range: `2900-2910`
+- The plugin binds the first free port in that range.
+- The client scans the same range and sends a lightweight `ping` handshake until it finds the live plugin.
+- If you want a single fixed port, pass the same value to `--port` and `--port-end`.
+
+You can override plugin defaults with environment variables:
+
+- `SENDPYCODE_C4D_PORT_START` sets the preferred starting port for the plugin.
+- `SENDPYCODE_C4D_PORT_END` sets the last port included in the scan range.
+
+Client options:
+
+- `--port` sets the scan start port.
+- `--port-end` sets the scan end port.
+- `--connect-timeout` sets the per-port timeout used during discovery.
+
+## Execution results
+
+The plugin now returns structured execution results back to the client.
+
+- Successful runs can print `stdout` back to your editor or terminal.
+- Python exceptions from Cinema 4D are returned in `stderr`.
+- Discovery now relies on the plugin handshake, so the updated client is intended to be used together with the updated plugin.
 
 ## Advanced features
 You can use **SendPythonCodeToCinema4D** also for editing Cinema 4D Python objects like a *Python Generator*, *Python Effector*, *Python Tag* and *Python Field*. For that use script code docstring:

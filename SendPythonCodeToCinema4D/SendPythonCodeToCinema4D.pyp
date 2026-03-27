@@ -21,7 +21,7 @@
 # THE SOFTWARE.
 
 __author__ = 'Niklas Rosenstein <rosensteinniklas (at) gmail.com>'
-__version__ = '1.1'
+__version__ = '1.2'
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                      Shared Code (SocketFile wrapper class)
@@ -33,6 +33,12 @@ if sys.version_info[0] < 3:
     except ImportError: from io import StringIO as BytesIO
 else:
     from io import BytesIO
+
+try:
+    text_type = unicode
+except NameError:
+    text_type = str
+
 
 class SocketFile(object):
     """
@@ -102,21 +108,47 @@ class SocketFile(object):
         return b''.join(parts)
 
     def write(self, data):
-        if isinstance(data, str):
+        if isinstance(data, text_type):
             if not self.encoding:
                 raise ValueError('got str object and no encoding specified')
             data = data.encode(self.encoding)
 
-        return self._socket.send(data)
+        self._socket.sendall(data)
+        return len(data)
 
     def close(self):
         return self._socket.close()
+
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                    Request Handling and Server thread
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-import sys, codecs, socket, hashlib, threading, os
+import sys, codecs, socket, hashlib, threading, os, json, io, contextlib
+
+DEFAULT_HOST = 'localhost'
+DEFAULT_PORT = 2900
+DEFAULT_PORT_SCAN_END = 2910
+PORT_START_ENV_VAR = 'SENDPYCODE_C4D_PORT_START'
+PORT_END_ENV_VAR = 'SENDPYCODE_C4D_PORT_END'
+PROTOCOL_ID = 'send-python-code-to-c4d'
+PING_COMMAND = 'ping'
+
+
+def safe_int(value, fallback):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def get_port_range():
+    start = safe_int(os.environ.get(PORT_START_ENV_VAR), DEFAULT_PORT)
+    end = safe_int(os.environ.get(PORT_END_ENV_VAR), DEFAULT_PORT_SCAN_END)
+    if end < start:
+        end = start
+    return start, end
+
 
 class SourceObject(object):
     """
@@ -132,7 +164,7 @@ class SourceObject(object):
         self.origin = origin
 
     def __repr__(self):
-        return '<SourceObject "{0}" sent from "{1}" @ {2}:{3}.>'.format(
+        return '<SourceObject "{0}" sent from "{1}" @ {2}:{3}.>'.format(
             self.filename, self.origin, self.host, self.port)
 
     def execute(self, scope):
@@ -142,6 +174,7 @@ class SourceObject(object):
 
         code = compile(self.source, self.filename, 'exec')
         exec(code, scope)
+
 
 def parse_headers(fp):
     """
@@ -154,25 +187,63 @@ def parse_headers(fp):
     headers = {}
     while True:
         line = fp.readline().strip()
-        if not line: break
+        if not line:
+            break
 
         if sys.version_info[0] < 3:
             key, _, value = line.partition(':')
-        else:    
+        else:
             key, _, value = line.decode().partition(':')
-        
+
         key = key.rstrip().lower()
         if key not in headers:
             headers[key] = value.lstrip()
 
     return headers
 
+
+class ExecutionRequest(object):
+    def __init__(self, client, source):
+        super(ExecutionRequest, self).__init__()
+        self.client = client
+        self.source = source
+
+    def reply_result(self, payload):
+        reply_json(self.client, payload)
+
+    def close(self):
+        try:
+            self.client.close()
+        except Exception:
+            pass
+
+
+def reply_json(client, payload):
+    body = json.dumps(payload).encode('utf8')
+    client.write('status: ok\n')
+    client.write('content-type: application/json\n')
+    client.write('content-length: {0}\n'.format(len(body)))
+    client.write('\n')
+    client.write(body)
+
+
+def reply_ping(client, required_password):
+    reply_json(client, {
+        'kind': 'ping',
+        'protocol': PROTOCOL_ID,
+        'plugin_name': 'Remote Code Executor',
+        'plugin_id': 1033731,
+        'version': __version__,
+        'password_required': required_password is not None,
+    })
+
+
 def parse_request(conn, addr, required_password):
     """
     Communicates with the client parsing the headers and source
     code that is to be queued to be executed any time soon.
 
-    Writes on of these lines back to the client:
+    Writes one of these lines back to the client:
 
     - status: invalid-password
     - status: invalid-request
@@ -185,68 +256,78 @@ def parse_request(conn, addr, required_password):
         password sent with the "Password" header (as encoded
         utf8 converted to md5). Will be converted to md5 by
         this function.
-    :return: :class:`SourceObject` or None
+    :return: :class:`ExecutionRequest` or None
     """
 
     client = SocketFile(conn, encoding='utf8')
-    headers = parse_headers(client)
-    # print headers
-    # Get the password and validate it.
-    if required_password is not None:
-        passhash = hashlib.md5(required_password.encode('utf8')).hexdigest()
-        if passhash != headers['password']:
-            client.write('status: invalid-password')
+    try:
+        headers = parse_headers(client)
+        command = headers.get('command', '').strip().lower()
+        if command == PING_COMMAND:
+            reply_ping(client, required_password)
+            client.close()
             return None
 
-    # Get the content-length of the request.
-    content_length = headers.get('content-length', None)
-    if content_length is None:
-        client.write('status: invalid-request')
-        return None
-    try:
-        content_length = int(content_length)
-    except ValueError as exc:
-        client.write('status: invalid-request')
-        return None
+        if required_password is not None:
+            passhash = hashlib.md5(required_password.encode('utf8')).hexdigest()
+            if passhash != headers.get('password'):
+                client.write('status: invalid-password\n')
+                client.close()
+                return None
 
-    # Get the encoding, default to binary.
-    encoding = headers.get('encoding', None)
-    if encoding is None:
-        encoding = 'binary'
-    else:
-        # default to binary if the encoding does not exist.
-        try: codecs.lookup(encoding)
-        except LookupError as exc:
+        content_length = headers.get('content-length', None)
+        if content_length is None:
+            client.write('status: invalid-request\n')
+            client.close()
+            return None
+        try:
+            content_length = int(content_length)
+        except ValueError:
+            client.write('status: invalid-request\n')
+            client.close()
+            return None
+
+        encoding = headers.get('encoding', None)
+        if encoding is None:
             encoding = 'binary'
+        else:
+            try:
+                codecs.lookup(encoding)
+            except LookupError:
+                encoding = 'binary'
 
-    # Get the filename, origin and source code.
-    origin = headers.get('origin', 'unknown')
-    filename = headers.get('filename', 'untitled')
-    try:
-        source = client.read(content_length)
-        if encoding != 'binary':
-            source = source.decode(encoding)
-    except UnicodeDecodeError as exc:
-        client.write('status: encoding-error')
+        origin = headers.get('origin', 'unknown')
+        filename = headers.get('filename', 'untitled')
+        try:
+            source = client.read(content_length)
+            if encoding != 'binary':
+                source = source.decode(encoding)
+        except UnicodeDecodeError:
+            client.write('status: encoding-error\n')
+            client.close()
+            return None
+
+        return ExecutionRequest(client, SourceObject(addr, filename, source, origin))
+    except Exception:
+        try:
+            client.write('status: invalid-request\n')
+            client.close()
+        except Exception:
+            pass
         return None
 
-    client.write('status: ok')
-    return SourceObject(addr, filename, source, origin)
 
-
-def get_module_docstring(filepath):
-    "Get module-level docstring of Python module at filepath, e.g. 'path/to/file.py'."
-    co = compile(open(filepath).read(), filepath, 'exec')
+def get_module_docstring(source_code, filename):
+    "Get module-level docstring of Python source text."
+    co = compile(source_code, filename, 'exec')
     if co.co_consts and isinstance(co.co_consts[0], str):
-        docstring = co.co_consts[0]
-    else:
-        docstring = None
-    return docstring
+        return co.co_consts[0]
+    return None
 
-def no_recur_iter(obj): # no recursion hierachy iteration
-    
+
+def no_recur_iter(obj):  # no recursion hierachy iteration
     op = obj
-    
+
     while op:
         yield op
 
@@ -257,9 +338,8 @@ def no_recur_iter(obj): # no recursion hierachy iteration
         while not op.GetNext() and op.GetUp():
             op = op.GetUp()
 
-        #if op == obj: break
-
         op = op.GetNext()
+
 
 class ServerThread(threading.Thread):
     """
@@ -289,18 +369,29 @@ class ServerThread(threading.Thread):
         with self._lock:
             self._running = value
 
+    @property
+    def port(self):
+        if self._socket:
+            try:
+                return self._socket.getsockname()[1]
+            except socket.error:
+                pass
+        return self._addr[1]
+
     def run(self):
         try:
             while self.running:
-                source = self.handle_request()
-                if source:
+                request = self.handle_request()
+                if request:
                     with self._queue_lock:
-                        self._queue.append(source)
+                        self._queue.append(request)
         finally:
-            self._socket.close()
+            if self._socket:
+                self._socket.close()
 
     def start(self):
         self._socket = socket.socket()
+        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._socket.bind(self._addr)
         self._socket.listen(5)
         self._socket.settimeout(0.5)
@@ -311,13 +402,16 @@ class ServerThread(threading.Thread):
         conn = None
         try:
             conn, addr = self._socket.accept()
-            source = parse_request(conn, addr, self._password)
-            return source
+            request = parse_request(conn, addr, self._password)
+            if request:
+                conn = None
+            return request
         except socket.timeout:
             return None
         finally:
             if conn:
                 conn.close()
+
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #                           Cinema 4D integration
@@ -327,23 +421,47 @@ import c4d, collections, traceback
 
 plugins = []
 
+
 class CodeExecuterMessageHandler(c4d.plugins.MessageData):
 
     PLUGIN_ID = 1033731
     PLUGIN_NAME = "Remote Code Executor"
 
-    def __init__(self, host, port, password):
+    def __init__(self, host, port, password, port_scan_end=None):
         super(CodeExecuterMessageHandler, self).__init__()
+        self.host = host
+        self.requested_port = port
+        self.port_scan_end = max(port, port_scan_end if port_scan_end is not None else port)
+        self.password = password
+        self.bound_port = None
         self.queue = collections.deque()
         self.queue_lock = threading.Lock()
-        self.thread = ServerThread(self.queue, self.queue_lock, host, port, password)
+        self.thread = None
+        self._start_server()
 
-        print("Binding Remote Code Executor Server to {0}:{1} ...".format(host, port))
-        try:
-            self.thread.start()
-        except socket.error as exc:
-            print("Failed to bind to {0}:{1}\n{2}".format(host, port,exc))
-            self.thread = None
+    def _start_server(self):
+        for candidate_port in range(self.requested_port, self.port_scan_end + 1):
+            print("Binding Remote Code Executor Server to {0}:{1} ...".format(
+                self.host, candidate_port))
+            thread = ServerThread(
+                self.queue, self.queue_lock, self.host, candidate_port, self.password)
+            try:
+                thread.start()
+            except socket.error as exc:
+                print("Failed to bind to {0}:{1}\n{2}".format(
+                    self.host, candidate_port, exc))
+                continue
+
+            self.thread = thread
+            self.bound_port = thread.port
+            if self.bound_port != self.requested_port:
+                print(
+                    "Remote Code Executor fallback port selected: {0} "
+                    "(requested {1}).".format(self.bound_port, self.requested_port))
+            return
+
+        self.thread = None
+        self.bound_port = None
 
     def register(self):
         return c4d.plugins.RegisterMessagePlugin(
@@ -356,9 +474,11 @@ class CodeExecuterMessageHandler(c4d.plugins.MessageData):
         tp = doc.GetParticleSystem()
         return {
             '__name__': '__main__',
-            'doc': doc, 'op': op, 
-            'mat': mat, 'tp': tp
-            }
+            'doc': doc,
+            'op': op,
+            'mat': mat,
+            'tp': tp
+        }
 
     def on_shutdown(self):
         if self.thread:
@@ -366,6 +486,7 @@ class CodeExecuterMessageHandler(c4d.plugins.MessageData):
             self.thread.running = False
             self.thread.join()
             self.thread = None
+        self.bound_port = None
 
     def GetTimer(self):
         if self.thread:
@@ -376,64 +497,100 @@ class CodeExecuterMessageHandler(c4d.plugins.MessageData):
         # Execute source code objects while they're available.
         while True:
             with self.queue_lock:
-                if not self.queue: break
-                source = self.queue.popleft()
+                if not self.queue:
+                    break
+                request = self.queue.popleft()
+            try:
+                payload = self.execute_request(request.source)
+            except Exception:
+                payload = {
+                    'success': False,
+                    'stdout': '',
+                    'stderr': traceback.format_exc(),
+                    'filename': request.source.filename,
+                    'origin': request.source.origin,
+                }
+            try:
+                request.reply_result(payload)
+            finally:
+                request.close()
+        return True
+
+    def execute_request(self, source):
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        success = True
+
+        with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
             try:
                 scope = self.get_scope()
                 scope['__file__'] = source.filename
                 if not obj_execute(source):
-                    print("RemoteCodeRunner: running", source)
                     source.execute(scope)
-            except Exception as exc:
-                traceback.print_exc()
-        return True
+            except Exception:
+                success = False
+                traceback.print_exc(file=stderr_buffer)
+
+        return {
+            'success': success,
+            'stdout': stdout_buffer.getvalue(),
+            'stderr': stderr_buffer.getvalue(),
+            'filename': source.filename,
+            'origin': source.origin,
+        }
+
 
 def obj_execute(source):
-    
     code = source.source
     mode = py_name = ''
-    scriptdoc = get_module_docstring(source.filename)
-    
-    if scriptdoc: 
+    try:
+        scriptdoc = get_module_docstring(code, source.filename)
+    except Exception:
+        return False
+
+    if scriptdoc:
         for line in scriptdoc.splitlines():
-            
             try:
-                mode,py_name = line.split(':')
-                mode = mode.strip() #Delete spaces around
+                mode, py_name = line.split(':', 1)
+                mode = mode.strip()
                 py_name = py_name.strip()
-            except:
+            except Exception:
                 pass
-            
-            if mode in ['Generator','Effector','Tag','Field']:
+
+            if mode in ['Generator', 'Effector', 'Tag', 'Field']:
                 break
- 
-    if mode not in ['Generator','Effector','Tag','Field'] or not py_name:
+
+    if mode not in ['Generator', 'Effector', 'Tag', 'Field'] or not py_name:
         return False
 
     doc = c4d.documents.GetActiveDocument()
-    
-     # Searching Python objects or tags
-    counter = 0 
+    if sys.version_info[0] < 3:
+        c4d_code = str(code)
+    elif isinstance(code, bytes):
+        c4d_code = code.decode('utf-8')
+    else:
+        c4d_code = code
+
+    # Searching Python objects or tags
+    counter = 0
     for obj in no_recur_iter(doc.GetFirstObject()):
-        # print obj
         if mode == 'Generator' and obj.GetType() == 1023866 and obj.GetName() == py_name:
-            obj[c4d.OPYTHON_CODE] = str(code) if sys.version_info[0] < 3 else str(code,'utf-8')
+            obj[c4d.OPYTHON_CODE] = c4d_code
             counter += 1
-        
+
         if mode == 'Effector' and obj.GetType() == 1025800 and obj.GetName() == py_name:
-            obj[c4d.OEPYTHON_STRING] = str(code) if sys.version_info[0] < 3 else str(code,'utf-8')
+            obj[c4d.OEPYTHON_STRING] = c4d_code
             counter += 1
 
         if mode == 'Field' and obj.GetType() == 440000277 and obj.GetName() == py_name:
-            obj[c4d.PYTHON_CODE] = str(code) if sys.version_info[0] < 3 else str(code,'utf-8')
+            obj[c4d.PYTHON_CODE] = c4d_code
             counter += 1
 
         if mode == 'Tag':
             tags = [t for t in obj.GetTags() if t.GetType() == 1022749]
-            # print tags
             for tag in tags:
                 if tag.GetName() == py_name:
-                    tag[c4d.TPYTHON_CODE] = str(code) if sys.version_info[0] < 3 else str(code,'utf-8')
+                    tag[c4d.TPYTHON_CODE] = c4d_code
                     counter += 1
 
     print('RemoteCodeRunner: code was changed in {0} {1}s '.format(counter, mode))
@@ -441,22 +598,27 @@ def obj_execute(source):
 
     return True
 
+
 def main():
     global plugins
-    handler = CodeExecuterMessageHandler('localhost', 2900, 'alpine')
+    preferred_port, port_scan_end = get_port_range()
+    handler = CodeExecuterMessageHandler(
+        DEFAULT_HOST, preferred_port, 'alpine', port_scan_end)
     handler.register()
     plugins.append(handler)
+
 
 def PluginMessage(kind, data):
     if kind in [c4d.C4DPL_ENDACTIVITY, c4d.C4DPL_RELOADPYTHONPLUGINS]:
         for plugin in plugins:
             method = getattr(plugin, 'on_shutdown', None)
             if callable(method):
-                try: method()
-                except Exception as exc:
+                try:
+                    method()
+                except Exception:
                     traceback.print_exc()
     return True
 
+
 if __name__ == "__main__":
     main()
-
